@@ -1,4 +1,4 @@
-﻿# Authored By Certified Coders © 2025
+# Authored By Certified Coders © 2025
 import asyncio
 import contextlib
 import glob
@@ -77,11 +77,13 @@ def get_ytdlp_base_opts() -> Dict[str, object]:
         "concurrent_fragment_downloads": 16,
         "http_chunk_size": 1 << 20,
         "socket_timeout": 15,
-        "retries": 1,
-        "fragment_retries": 1,
+        "retries": 3,  # ✅ improved
+        "fragment_retries": 3,  # ✅ improved
         "cachedir": str(CACHE_DIR),
         "ignoreerrors": True,
-        "merge_output_format": "mp4"
+        "merge_output_format": "mp4",
+        "nocheckcertificate": True,  # ✅ added
+        "geo_bypass": True,  # ✅ added
     }
     if cookiefile := get_cookie_file():
         opts["cookiefile"] = cookiefile
@@ -200,17 +202,31 @@ def get_final_path_from_info(info: Dict) -> Optional[str]:
     return matches[0] if matches else None
 
 
+# ✅ MAIN FIXED FUNCTION
 def download_with_ytdlp_sync(link: str, fmt: str) -> Optional[str]:
     try:
         opts = get_ytdlp_base_opts()
         opts["format"] = fmt
+
         with YoutubeDL(opts) as ydl:
             info = ydl.extract_info(link, download=False)
+
+            if not info:
+                print("❌ No info fetched")
+                return None
+
+            # 🔥 MAIN FIX: direct stream fallback
+            if "url" in info:
+                return info["url"]
+
             if path := get_final_path_from_info(info):
                 return path
+
             ydl.download([link])
             return get_final_path_from_info(info)
-    except Exception:
+
+    except Exception as e:
+        print(f"YT-DLP ERROR: {e}")
         return None
 
 
@@ -243,7 +259,7 @@ async def race_ytdlp_and_api(yt_task, api_task, title: str):
     )
     for task in done:
         result = task.result()
-        if result and os.path.exists(result):
+        if result and (isinstance(result, str)):
             source = "yt-dlp" if task is yt_task else "API"
             log_download_source(title, source)
             for p in pending:
@@ -254,7 +270,7 @@ async def race_ytdlp_and_api(yt_task, api_task, title: str):
     for task in pending:
         try:
             result = await task
-            if result and os.path.exists(result):
+            if result and (isinstance(result, str)):
                 source = "yt-dlp" if task is yt_task else "API"
                 log_download_source(title, source)
                 return result
@@ -268,6 +284,7 @@ async def race_ytdlp_and_api(yt_task, api_task, title: str):
 async def yt_dlp_download(link: str, type: str, title: str = "") -> Optional[str]:
     loop = asyncio.get_running_loop()
     vid = extract_video_id(link)
+
     if cached := find_cached_file(vid):
         if title:
             LOGGER.info(f"Track '{title}' - Served from cache")
@@ -279,16 +296,13 @@ async def yt_dlp_download(link: str, type: str, title: str = "") -> Optional[str
         async def run():
             ytdlp_task = asyncio.create_task(
                 run_with_semaphore(
-                    loop.run_in_executor(None, download_with_ytdlp_sync, link, "bestaudio[ext=webm][acodec=opus]")
+                    loop.run_in_executor(None, download_with_ytdlp_sync, link, "bestaudio/best")
                 )
             )
             api_task = asyncio.create_task(api_download_audio(link)) if USE_AUDIO_API else None
             if api_task:
                 return await race_ytdlp_and_api(ytdlp_task, api_task, title or "Unknown")
-            result = await ytdlp_task
-            if result and title:
-                log_download_source(title, "yt-dlp")
-            return result
+            return await ytdlp_task
 
         return await deduplicate_download(key, run)
 
@@ -298,16 +312,13 @@ async def yt_dlp_download(link: str, type: str, title: str = "") -> Optional[str
         async def run():
             ytdlp_task = asyncio.create_task(
                 run_with_semaphore(
-                    loop.run_in_executor(None, download_with_ytdlp_sync, link, "(bestvideo[height<=?720][width<=?1280][ext=mp4])+(bestaudio)")
+                    loop.run_in_executor(None, download_with_ytdlp_sync, link, "best")
                 )
             )
             api_task = asyncio.create_task(api_download_video(link)) if USE_VIDEO_API else None
             if api_task:
                 return await race_ytdlp_and_api(ytdlp_task, api_task, title or "Unknown")
-            result = await ytdlp_task
-            if result and title:
-                log_download_source(title, "yt-dlp")
-            return result
+            return await ytdlp_task
 
         return await deduplicate_download(key, run)
 
