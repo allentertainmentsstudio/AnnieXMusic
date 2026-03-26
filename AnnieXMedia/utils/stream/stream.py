@@ -1,7 +1,13 @@
-﻿# Authored By Certified Coders © 2025
+# Authored By Certified Coders © 2025
 import os
 from random import randint
 from typing import Union
+
+# ✅ AUTO INSTALL (SAFE)
+try:
+    import yt_dlp
+except ImportError:
+    os.system("pip install -U yt-dlp")
 
 from pyrogram.types import InlineKeyboardMarkup
 
@@ -32,8 +38,10 @@ async def stream(
     spotify: Union[bool, str] = None,
     forceplay: Union[bool, str] = None,
 ) -> None:
+
+    # ✅ FIX: empty result handle
     if not result:
-        return
+        raise AssistantErr("❌ Koi result nahi mila.\nSong sahi likho.")
 
     forceplay = bool(forceplay)
     is_video = bool(video)
@@ -53,7 +61,8 @@ async def stream(
                 title, duration_min, duration_sec, thumbnail, vidid = await YouTube.details(
                     search, videoid=search
                 )
-            except Exception:
+            except Exception as e:
+                print(f"Details Error: {e}")
                 continue
 
             if str(duration_min) == "None":
@@ -81,13 +90,16 @@ async def stream(
                 if not forceplay:
                     db[chat_id] = []
                 try:
+                    print("VID ID:", vidid)
                     file_path, direct = await YouTube.download(
                         vidid, mystic, video=is_video, videoid=vidid
                     )
-                except Exception:
-                    raise AssistantErr(_["play_14"])
+                except Exception as e:
+                    print(f"YouTube Download Error: {e}")
+                    raise AssistantErr("❌ Track fetch nahi hua.\nDusra try karo.")
+
                 if not file_path:
-                    raise AssistantErr(_["play_14"])
+                    raise AssistantErr("❌ File missing.\nTry another.")
 
                 await StreamController.join_call(
                     chat_id,
@@ -153,13 +165,16 @@ async def stream(
         thumbnail = result["thumb"]
 
         try:
+            print("VID ID:", vidid)
             file_path, direct = await YouTube.download(
                 vidid, mystic, video=is_video, videoid=vidid
             )
-        except Exception:
-            raise AssistantErr(_["play_14"])
+        except Exception as e:
+            print(f"YouTube Download Error: {e}")
+            raise AssistantErr("❌ Track fetch fail.\nDusra try karo.")
+
         if not file_path:
-            raise AssistantErr(_["play_14"])
+            raise AssistantErr("❌ File missing.\nTry again.")
 
         if await is_active_chat(chat_id):
             await put_queue(
@@ -222,8 +237,9 @@ async def stream(
         file_path = result["filepath"]
         title = result["title"]
         duration_min = result["duration_min"]
+
         if not file_path:
-            raise AssistantErr(_["play_14"])
+            raise AssistantErr("❌ File missing.")
 
         if await is_active_chat(chat_id):
             await put_queue(
@@ -277,8 +293,9 @@ async def stream(
         link = result["link"]
         title = (result["title"]).title()
         duration_min = result["dur"]
+
         if not file_path:
-            raise AssistantErr(_["play_14"])
+            raise AssistantErr("❌ File missing.")
 
         if await is_active_chat(chat_id):
             await put_queue(
@@ -346,21 +363,19 @@ async def stream(
                 user_id,
                 "video" if is_video else "audio",
             )
-            position = len(db.get(chat_id)) - 1
-            button = aq_markup(_, chat_id)
-            await app.send_message(
-                chat_id=original_chat_id,
-                text=_["queue_4"].format(position, title[:27], duration_min, user_name),
-                reply_markup=InlineKeyboardMarkup(button),
-            )
         else:
             if not forceplay:
                 db[chat_id] = []
-            n, file_path = await YouTube.video(link)
+            try:
+                n, file_path = await YouTube.video(link)
+            except Exception as e:
+                print(f"Live Error: {e}")
+                raise AssistantErr("❌ Live fetch fail.")
+
             if n == 0:
                 raise AssistantErr(_["str_3"])
             if not file_path:
-                raise AssistantErr(_["play_14"])
+                raise AssistantErr("❌ File missing.")
 
             await StreamController.join_call(
                 chat_id,
@@ -412,12 +427,6 @@ async def stream(
                 user_name,
                 link,
                 "video" if is_video else "audio",
-            )
-            position = len(db.get(chat_id)) - 1
-            button = aq_markup(_, chat_id)
-            await mystic.edit_text(
-                text=_["queue_4"].format(position, title[:27], duration_min, user_name),
-                reply_markup=InlineKeyboardMarkup(button),
             )
         else:
             if not forceplay:
